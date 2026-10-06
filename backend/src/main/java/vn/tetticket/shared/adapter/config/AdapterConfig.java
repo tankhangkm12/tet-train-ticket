@@ -14,7 +14,7 @@ import vn.tetticket.shared.adapter.cache.RedisCacheClient;
 import vn.tetticket.shared.adapter.logger.AppLogger;
 import vn.tetticket.shared.adapter.logger.Slf4jAppLogger;
 import vn.tetticket.shared.adapter.mail.EmailSender;
-import vn.tetticket.shared.adapter.mail.MailpitEmailSender;
+import vn.tetticket.shared.adapter.mail.SmtpEmailSender;
 import vn.tetticket.shared.adapter.messaging.EventPublisher;
 import vn.tetticket.shared.adapter.messaging.KafkaEventPublisher;
 
@@ -40,10 +40,8 @@ public class AdapterConfig {
     }
 
     @Bean
-    public EmailSender emailSender(
-            @Value("${mailpit.host:${MAILPIT_SMTP_HOST:localhost}}") String host,
-            @Value("${mailpit.port:${MAILPIT_SMTP_PORT:1025}}") int port) {
-        return new MailpitEmailSender(host, port);
+    public EmailSender emailSender(@Autowired(required = false) org.springframework.mail.javamail.JavaMailSender mailSender) {
+        return new SmtpEmailSender(mailSender);
     }
 
     @Bean(destroyMethod = "close")

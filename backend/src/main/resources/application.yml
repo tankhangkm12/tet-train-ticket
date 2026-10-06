@@ -31,6 +31,9 @@ spring:
       timeout: 2000ms
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  mail:
+    host: ${MAIL_HOST:${MAILPIT_SMTP_HOST:localhost}}
+    port: ${MAIL_PORT:${MAILPIT_SMTP_PORT:1025}}
 
 management:
   endpoints:

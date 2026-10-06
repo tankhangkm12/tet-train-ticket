@@ -1,0 +1,43 @@
+{
+  "skill_name": "aizen-init",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Khởi tạo dự án backend cho team. Repo: https://github.com/acme/order-service.git. Tài liệu: evals/files/srs-order-service.md. Project root: ./order-service (thư mục trống).",
+      "expected_output": "Inputs checked, .aizen/runs/init/ workspace created and git-ignored, git initialized with develop, then a plan written from the docs with the open questions listed, and the agent stops at checkpoint 1 without writing any application code.",
+      "files": ["evals/files/srs-order-service.md"],
+      "expectations": [
+        "Ran check_inputs.py (or equivalently created .aizen/runs/init/{plans,reports,graphify} and inputs.md)",
+        ".gitignore contains .aizen/runs/init/ and graphify-out/ and .env",
+        "Git initialized with remote origin set to the given URL and a develop branch",
+        "Wrote .aizen/runs/init/plans/plan.md with a task table (owner, depends on, done criteria, status)",
+        "Asked about the auth model instead of choosing one, because the document leaves it open",
+        "Stopped and asked for confirmation of the plan; no src/, Dockerfile or compose file was created",
+        "No agent files written outside .aizen/runs/init/ (except .gitignore and .git)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Dựng khung backend NestJS + PostgreSQL + Redis cho dự án mới của team, có docker compose và health check. Repo là https://gitlab.com/acme/billing.git.",
+      "expected_output": "The agent notices the project documents are missing, asks for them and stops before creating anything.",
+      "files": [],
+      "expectations": [
+        "Asks the user for the detailed project documents",
+        "Does not create source code, Dockerfile, compose or plan files",
+        "Does not guess requirements from the stack names alone"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Project ./order-service đang ở bước 2 của aizen-init (step-0, step-1 đã done và approved). Bỏ qua phần Docker đi, làm luôn bước 4 env và config.",
+      "expected_output": "The agent treats the request as a skip request: it states that step 2 and 3 come first, asks for explicit permission to skip step 3 (and notes step 2 is not done), and if permitted records `Status: skipped` with `Skip-approved-by: user — <quote>` before running gate.py 4.",
+      "files": [],
+      "expectations": [
+        "Ran gate.py (or checked reports) before starting step 4",
+        "Points out step 2 is not done yet and does not jump over it silently",
+        "Records any skip in .aizen/runs/init/reports/step-3.md with Skip-approved-by: user and the user's words",
+        "Does not set Approved: yes on any checkpoint by itself"
+      ]
+    }
+  ]
+}

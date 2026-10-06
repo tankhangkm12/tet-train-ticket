@@ -1,0 +1,14 @@
+{
+  "name": "aizen-backend",
+  "version": "24.0.0",
+  "description": "Backend: principles, architecture, module boundaries, API contract, data concurrency, messaging, microservices, language stacks (NestJS, Spring Boot, FastAPI), API consumer cost",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "backend",
+    "api-ux"
+  ],
+  "requires": [
+    "aizen-core"
+  ]
+}

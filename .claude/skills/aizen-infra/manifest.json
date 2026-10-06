@@ -1,0 +1,13 @@
+{
+  "name": "aizen-infra",
+  "version": "24.0.0",
+  "description": "Infrastructure and delivery: pipelines with security gates, environments, deploy and rollback, secrets, observability, incidents; Docker, Podman, Kubernetes/Helm, GitHub Actions, GitLab CI, Terraform",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "infra"
+  ],
+  "requires": [
+    "aizen-core"
+  ]
+}

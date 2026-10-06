@@ -1,0 +1,87 @@
+{
+  "name": "aizen-video-to-skill",
+  "version": "3.0.0",
+  "description": "Turn a YouTube or local video into an Aizen skill (subtitles, or ffmpeg + speech-to-text)",
+  "framework": "Aizen",
+  "kind": "entry",
+  "requires": [
+    "aizen-core"
+  ],
+  "contract": {
+    "outputs": [
+      "out/*/SKILL.md"
+    ],
+    "steps": [
+      {
+        "id": "environment",
+        "evidence": [
+          "cmd"
+        ],
+        "hint": "check_env.py"
+      },
+      {
+        "id": "extract",
+        "evidence": [
+          "file"
+        ],
+        "hint": "out/work/transcript.md and manifest.json"
+      },
+      {
+        "id": "write",
+        "evidence": [
+          "file"
+        ],
+        "hint": "the new skill's SKILL.md and references/source.md"
+      },
+      {
+        "id": "validate",
+        "evidence": [
+          "cmd",
+          "out"
+        ],
+        "hint": "validate_skill.py on the new skill, PASS"
+      },
+      {
+        "id": "publish",
+        "evidence": [
+          "sha"
+        ],
+        "waivable": true,
+        "hint": "the commit, only after the owner's yes (waive when not publishing)"
+      }
+    ],
+    "rules": [
+      {
+        "id": "skill",
+        "type": "command",
+        "run": "uv run \"{skill_dir}/scripts/validate_skill.py\" \"{output_dir}\""
+      },
+      {
+        "id": "provenance",
+        "type": "command",
+        "run": "test -s \"{output_dir}/references/source.md\""
+      }
+    ],
+    "expectations": [
+      {
+        "id": "E1",
+        "text": "The skill teaches the reusable procedure the video teaches, not a summary of the video"
+      },
+      {
+        "id": "E2",
+        "text": "The description says what the skill does and when to use it, so it would trigger on the owner's prompts"
+      },
+      {
+        "id": "E3",
+        "text": "No passage longer than 15 words is copied from the transcript; quotes cite the video"
+      },
+      {
+        "id": "E4",
+        "text": "Deterministic steps are scripts; SKILL.md stays lean with detail in references/"
+      }
+    ],
+    "verifier": {
+      "required": true
+    }
+  }
+}

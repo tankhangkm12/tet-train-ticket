@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "skills": {
+    "aizen-backend": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-backend/SKILL.md",
+      "computedHash": "2b38140b9a0fcc475b70d599175f5fab9a5f25225cc1e94efe8c0f71172d902c"
+    },
+    "aizen-build": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-build/SKILL.md",
+      "computedHash": "656fe7fe2120465f7884f7b15a911a8ef83e93be1b70b9d3ba091bd71b1e1563"
+    },
+    "aizen-core": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-core/SKILL.md",
+      "computedHash": "087811f5afdf8981765391c8a80b12b4be2ba8ccf79c7e72c28115927d237acd"
+    },
+    "aizen-database": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-database/SKILL.md",
+      "computedHash": "61712a52f7d2c9a2e070ea61d92aeec83d17a17cad2f1e018f2f7c220c04417d"
+    },
+    "aizen-design": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-design/SKILL.md",
+      "computedHash": "85a843eaf32cded438244ab6b3894d6c64cd0ae3dc783c36afd39e0536b1cac7"
+    },
+    "aizen-frontend": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-frontend/SKILL.md",
+      "computedHash": "30e109a61ef1fd1aa34713789403f8c0f0399f1c86e42b903c61d111f561f295"
+    },
+    "aizen-infra": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-infra/SKILL.md",
+      "computedHash": "c6522a34aa98e1fa281cc80ba0e832ccf0887b36ab4410e77211cd4caaa00e7e"
+    },
+    "aizen-init": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-init/SKILL.md",
+      "computedHash": "4044a31b2a3b29efdcb187853a529a1d32c72772c7ac7313ad92f1447a90bd76"
+    },
+    "aizen-quality": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-quality/SKILL.md",
+      "computedHash": "17f385ea0a1894d0bfec325d6f3096a9c550524a6769abda37d62b6bc80a02b4"
+    },
+    "aizen-skill-creator": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-skill-creator/SKILL.md",
+      "computedHash": "c2eaacc8385764a8c7e5282809d9665a6a541caf92ccc59c44397368fd9fe8f6"
+    },
+    "aizen-skill-eval": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-skill-eval/SKILL.md",
+      "computedHash": "fce3c329c4a6edbe4ae46789656b6f795fe601f98052ece2d14a9cb2c6498ef0"
+    },
+    "aizen-skill-importer": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-skill-importer/SKILL.md",
+      "computedHash": "24792e477e91b99ae27e1adbc630e00d7f3f410ef4824db28d9a68f6271200bd"
+    },
+    "aizen-tech-learning": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-tech-learning/SKILL.md",
+      "computedHash": "097caee6c853bea20c9524fc6bd0b9ecacdd4a8cf69b9fe2f6440ef1fa818f32"
+    },
+    "aizen-video-to-skill": {
+      "source": "tankhangkm12/Aizen-Skills",
+      "sourceType": "github",
+      "skillPath": "skills/aizen-video-to-skill/SKILL.md",
+      "computedHash": "a2f9182fd3536021da6cd3d70f485f70a2b9ad3b5a884db3aeb1c961f50637fd"
+    }
+  }
+}

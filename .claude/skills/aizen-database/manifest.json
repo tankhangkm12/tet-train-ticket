@@ -1,0 +1,13 @@
+{
+  "name": "aizen-database",
+  "version": "24.0.0",
+  "description": "Databases: schema design, migrations, concurrency, performance, connections, growth, partitioning, HA/DR, compliance; engines PostgreSQL, MySQL, MongoDB, Redis, Elasticsearch",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "db"
+  ],
+  "requires": [
+    "aizen-core"
+  ]
+}

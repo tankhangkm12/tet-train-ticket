@@ -1,0 +1,14 @@
+{
+  "name": "aizen-frontend",
+  "version": "24.0.0",
+  "description": "Frontend and UI design: principles, React/Next performance rules, API calls, accessibility, visual checks, style guides, tokens and handoff",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "frontend",
+    "ui"
+  ],
+  "requires": [
+    "aizen-core"
+  ]
+}

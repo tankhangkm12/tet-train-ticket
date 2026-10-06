@@ -1,0 +1,86 @@
+{
+  "name": "aizen-build",
+  "version": "25.0.0",
+  "description": "Production engineering coordinator: plan module by module with the owner, then planner/dev/tester/reviewer/devops roles build, test, review and fix to a local branch with push/PR commands; also review-only, design-only and pipeline-only work",
+  "framework": "Aizen",
+  "kind": "entry",
+  "topics": [
+    "flow",
+    "plan",
+    "dev"
+  ],
+  "requires": [
+    "aizen-core",
+    "aizen-design",
+    "aizen-backend",
+    "aizen-frontend",
+    "aizen-database",
+    "aizen-quality",
+    "aizen-infra"
+  ],
+  "optional": [
+    "archify"
+  ],
+  "contract": {
+    "outputs": [],
+    "steps": [],
+    "rules": [
+      {
+        "id": "plan",
+        "type": "approved"
+      },
+      {
+        "id": "check-{unit}",
+        "type": "evidence",
+        "path": "evidence/{unit}.json",
+        "waivable": true
+      },
+      {
+        "id": "check-int",
+        "type": "evidence",
+        "final": true,
+        "path": "evidence/int.json"
+      },
+      {
+        "id": "test",
+        "type": "report",
+        "glob": "test*.md",
+        "fresh": true,
+        "by": "tester",
+        "waivable": true,
+        "hint": "dispatch the tester (S5) on the current SHA"
+      },
+      {
+        "id": "review",
+        "type": "report",
+        "glob": "review*.md",
+        "fresh": true,
+        "by": "reviewer",
+        "not_author": true,
+        "citations": 1,
+        "verdict": "PASS",
+        "hint": "dispatch the reviewer (S6) at the current SHA"
+      },
+      {
+        "id": "scope",
+        "type": "scope",
+        "waivable": true
+      },
+      {
+        "id": "knowledge",
+        "type": "knowledge",
+        "waivable": true
+      },
+      {
+        "id": "pr-body",
+        "type": "report",
+        "glob": "pr-body.md",
+        "when": "finish",
+        "hint": "merge the units' pr-body-<unit>.md (S8)"
+      }
+    ],
+    "verifier": {
+      "required": false
+    }
+  }
+}

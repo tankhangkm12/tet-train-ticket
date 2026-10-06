@@ -1,0 +1,17 @@
+{
+  "name": "aizen-design",
+  "version": "24.1.0",
+  "description": "Discovery and design: scope, legacy onboarding, requirements/SRS, HLD/LLD, API contract, frontend architecture, threat model",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "discover",
+    "design"
+  ],
+  "requires": [
+    "aizen-core"
+  ],
+  "optional": [
+    "archify"
+  ]
+}

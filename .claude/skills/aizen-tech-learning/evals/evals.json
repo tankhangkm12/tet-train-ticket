@@ -1,0 +1,44 @@
+{
+  "skill_name": "aizen-tech-learning",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Nghiên cứu Redis 7.2 cho workload cache 100k GET/s, value 1KB, 1 node. Giải thích vì sao nó nhanh, so sánh với Memcached và Hazelcast. Ghi ra file markdown.",
+      "expected_output": "A note that traces one GET from the client through the event loop, epoll, socket copies and RESP framing, with mermaid diagrams and an architecture comparison table.",
+      "files": [],
+      "expectations": [
+        "Has a component map with IDs (C1, C2, …) and a mermaid flowchart",
+        "Covers the OS/kernel layer with the I/O model (epoll) and syscalls/copies per request",
+        "Covers the network layer (RESP framing, round-trips, pipelining)",
+        "Each alternative has its own architecture diagram for the same operation",
+        "Comparison cells state mechanisms and costs, not adjectives",
+        "Claims about internals link to source code or official docs with a version",
+        "States a breaking point: a workload where Redis stops being fast and why",
+        "check_tree.py passes on the file"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Kafka vs RabbitMQ cho log event 500k msg/s, giữ 7 ngày: vì sao Kafka chịu được thông lượng đó? Đi xuống tới kernel.",
+      "expected_output": "Append-only log, page cache, sendfile zero-copy, batching, partition parallelism vs RabbitMQ queue/ack model, all layer by layer.",
+      "files": [],
+      "expectations": [
+        "Explains sequential append + page cache and zero-copy sendfile at the kernel layer",
+        "Explains batching and partitioning with counted costs",
+        "RabbitMQ is traced through the same operation with its own diagram",
+        "Verdict is phrased as conditions (choose X when …)"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Tìm hiểu bản chất Nginx làm reverse proxy cho 50k kết nối đồng thời, so sánh kiến trúc với Apache httpd (prefork/event).",
+      "expected_output": "Master/worker + event loop per worker vs process/thread per connection, with memory and context-switch costs per connection.",
+      "files": [],
+      "expectations": [
+        "Shows the per-worker event loop (epoll) vs Apache's process/thread model with diagrams",
+        "Counts memory and context switches per connection for both",
+        "Gives observe commands (e.g. strace, ss, perf) for the mechanism"
+      ]
+    }
+  ]
+}

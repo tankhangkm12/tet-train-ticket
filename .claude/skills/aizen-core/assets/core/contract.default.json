@@ -1,0 +1,17 @@
+{
+  "_doc": "Rules every entry skill inherits (docs/aizen-skill-standard.md, Contract). A skill's manifest `contract` overrides by id / key.",
+  "labels": ["verified", "inferred", "unverified", "projected"],
+  "rules": [
+    {
+      "id": "claims-labelled",
+      "type": "labels",
+      "waivable": true,
+      "hint": "every line with a measured or estimated number carries [verified], [inferred], [unverified] or [projected], or links its source"
+    }
+  ],
+  "verifier": {
+    "required": true,
+    "threshold": 0.8,
+    "rounds": 2
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "aizen-quality",
+  "version": "24.1.0",
+  "description": "Quality: test strategy, levels, case design, bug reports, test lenses; independent review method, code/security/supply-chain/infra/ui/release review, verification",
+  "framework": "Aizen",
+  "kind": "pack",
+  "topics": [
+    "test",
+    "review"
+  ],
+  "requires": [
+    "aizen-core"
+  ]
+}

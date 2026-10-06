@@ -6,7 +6,7 @@ import vn.tetticket.shared.adapter.cache.RedisCacheClient;
 import vn.tetticket.shared.adapter.logger.AppLogger;
 import vn.tetticket.shared.adapter.logger.Slf4jAppLogger;
 import vn.tetticket.shared.adapter.mail.EmailSender;
-import vn.tetticket.shared.adapter.mail.MailpitEmailSender;
+import vn.tetticket.shared.adapter.mail.SmtpEmailSender;
 import vn.tetticket.shared.adapter.messaging.EventPublisher;
 import vn.tetticket.shared.adapter.messaging.KafkaEventPublisher;
 
@@ -45,8 +45,8 @@ public class AdapterTest {
     }
 
     @Test
-    void emailSender_shouldHandleUnreachableHostGracefully() {
-        EmailSender emailSender = new MailpitEmailSender("localhost", 65432);
+    void emailSender_shouldHandleNullMailSenderGracefully() {
+        EmailSender emailSender = new SmtpEmailSender(null);
         assertDoesNotThrow(() -> emailSender.sendEmail("user@example.com", "Test Subject", "Test Body"));
     }
 }

@@ -1,5 +1,6 @@
 package vn.tetticket.security;
 
+import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,13 +9,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import vn.tetticket.identity.controller.AuthController;
 import vn.tetticket.shared.config.SecurityConfig;
 import vn.tetticket.shared.health.HealthController;
 import vn.tetticket.shared.security.JwtAuthenticationFilter;
 import vn.tetticket.shared.security.JwtTokenService;
 import vn.tetticket.shared.security.RequestIdFilter;
 
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Base64;
 
@@ -24,7 +26,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest({AuthController.class, HealthController.class})
+@WebMvcTest({TestSecurityController.class, HealthController.class})
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtTokenService.class, RequestIdFilter.class})
 @TestPropertySource(properties = {
     "spring.kafka.bootstrap-servers=",
@@ -39,22 +41,15 @@ public class AuthSecurityTest {
     @Autowired
     private JwtTokenService jwtTokenService;
 
-    private static String customerToken;
-    private static String staffToken;
-    private static String adminToken;
+    private String customerToken;
+    private String staffToken;
+    private String adminToken;
 
     @BeforeEach
     void setUp() {
-        if (customerToken == null) {
-            KeyPair kp = JwtTokenService.generateEd25519KeyPair();
-            String pubStr = Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
-            String privStr = Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded());
-            JwtTokenService localSigner = new JwtTokenService(pubStr, privStr);
-
-            customerToken = localSigner.createToken("cust-01", "cust@tetticket.vn", "CUSTOMER", 3600);
-            staffToken = localSigner.createToken("staff-01", "staff@tetticket.vn", "STAFF", 3600);
-            adminToken = localSigner.createToken("admin-01", "admin@tetticket.vn", "ADMIN", 3600);
-        }
+        customerToken = jwtTokenService.createToken("cust-01", "cust@tetticket.vn", "CUSTOMER", 3600);
+        staffToken = jwtTokenService.createToken("staff-01", "staff@tetticket.vn", "STAFF", 3600);
+        adminToken = jwtTokenService.createToken("admin-01", "admin@tetticket.vn", "ADMIN", 3600);
     }
 
     @Test
@@ -70,7 +65,7 @@ public class AuthSecurityTest {
     }
 
     @Test
-    void unauthenticatedRequest_toProfile_shouldReturn401ProblemDetail() throws Exception {
+    void missingToken_toSecuredEndpoint_shouldReturn401() throws Exception {
         mockMvc.perform(get("/api/v1/profile"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
@@ -79,32 +74,65 @@ public class AuthSecurityTest {
     }
 
     @Test
-    void invalidToken_toProfile_shouldReturn401ProblemDetail() throws Exception {
+    void wrongSignatureToken_toSecuredEndpoint_shouldReturn401() throws Exception {
+        // Sign with an untrusted, foreign Ed25519 key pair
+        KeyPair foreignKp = JwtTokenService.generateEd25519KeyPair();
+        String foreignPriv = Base64.getEncoder().encodeToString(foreignKp.getPrivate().getEncoded());
+        JwtTokenService foreignSigner = new JwtTokenService(null, foreignPriv);
+        String untrustedToken = foreignSigner.createToken("hacker", "hacker@evil.com", "ADMIN", 3600);
+
         mockMvc.perform(get("/api/v1/profile")
-                .header("Authorization", "Bearer invalid.jwt.token"))
+                .header("Authorization", "Bearer " + untrustedToken))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
                 .andExpect(jsonPath("$.status").value(401));
     }
 
     @Test
-    void customerToken_canAccessProfile() throws Exception {
-        // We sign a token using jwtTokenService if private key is present
-        // Or verify that with a valid token, profile is 200
-        // When dynamic keys are tested, we test with jwtTokenService
-        String token = jwtTokenService.createToken("usr-77", "cust77@tetticket.vn", "CUSTOMER", 3600);
+    void expiredToken_toSecuredEndpoint_shouldReturn401() throws Exception {
+        String expiredToken = jwtTokenService.createToken("cust-01", "cust@tetticket.vn", "CUSTOMER", -10);
+
         mockMvc.perform(get("/api/v1/profile")
-                .header("Authorization", "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.userId").value("usr-77"))
-                .andExpect(jsonPath("$.role").value("CUSTOMER"));
+                .header("Authorization", "Bearer " + expiredToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void headerAlgNone_toSecuredEndpoint_shouldReturn401() throws Exception {
+        String header = Base64.getUrlEncoder().withoutPadding().encodeToString("{\"alg\":\"none\",\"typ\":\"JWT\"}".getBytes(StandardCharsets.UTF_8));
+        String payload = Base64.getUrlEncoder().withoutPadding().encodeToString("{\"sub\":\"usr-none\",\"email\":\"none@tetticket.vn\",\"role\":\"CUSTOMER\"}".getBytes(StandardCharsets.UTF_8));
+        String algNoneToken = header + "." + payload + ".";
+
+        mockMvc.perform(get("/api/v1/profile")
+                .header("Authorization", "Bearer " + algNoneToken))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+                .andExpect(jsonPath("$.status").value(401));
+    }
+
+    @Test
+    void headerHS256_toSecuredEndpoint_shouldReturn401() throws Exception {
+        SecretKey secretKey = Jwts.SIG.HS256.key().build();
+        String hs256Token = Jwts.builder()
+                .subject("usr-hs256")
+                .claim("email", "hs256@tetticket.vn")
+                .claim("role", "ADMIN")
+                .signWith(secretKey, Jwts.SIG.HS256)
+                .compact();
+
+        mockMvc.perform(get("/api/v1/profile")
+                .header("Authorization", "Bearer " + hs256Token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+                .andExpect(jsonPath("$.status").value(401));
     }
 
     @Test
     void customerToken_cannotAccessAdminDashboard_shouldReturn403() throws Exception {
-        String token = jwtTokenService.createToken("usr-88", "cust88@tetticket.vn", "CUSTOMER", 3600);
         mockMvc.perform(get("/api/v1/admin/dashboard")
-                .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + customerToken))
                 .andExpect(status().isForbidden())
                 .andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
                 .andExpect(jsonPath("$.status").value(403))
@@ -113,18 +141,25 @@ public class AuthSecurityTest {
 
     @Test
     void adminToken_canAccessAdminDashboard_shouldReturn200() throws Exception {
-        String token = jwtTokenService.createToken("admin-99", "admin99@tetticket.vn", "ADMIN", 3600);
         mockMvc.perform(get("/api/v1/admin/dashboard")
-                .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Welcome to admin dashboard"));
     }
 
     @Test
+    void customerToken_canAccessProfile_shouldReturn200() throws Exception {
+        mockMvc.perform(get("/api/v1/profile")
+                .header("Authorization", "Bearer " + customerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("cust-01"))
+                .andExpect(jsonPath("$.role").value("CUSTOMER"));
+    }
+
+    @Test
     void staffToken_canAccessStaffCheckIn_shouldReturn200() throws Exception {
-        String token = jwtTokenService.createToken("staff-11", "staff11@tetticket.vn", "STAFF", 3600);
         mockMvc.perform(get("/api/v1/staff/check-in")
-                .header("Authorization", "Bearer " + token))
+                .header("Authorization", "Bearer " + staffToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Staff check-in access granted"));
     }

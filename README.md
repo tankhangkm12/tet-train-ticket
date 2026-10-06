@@ -65,11 +65,44 @@ Kiến trúc Modular Monolith tuân thủ quy tắc DDD / Hexagonal Architecture
 | `REDIS_HOST` | Có | `localhost` (hoặc `redis` trong Docker) | Địa chỉ máy chủ Redis |
 | `REDIS_PORT` | Không | `6379` | Cổng kết nối Redis |
 | `KAFKA_BOOTSTRAP_SERVERS` | Có | `localhost:9092` (hoặc `kafka:9092`) | Danh sách địa chỉ broker Apache Kafka |
-| `MAILPIT_SMTP_HOST` | Không | `localhost` (hoặc `mailpit` trong Docker) | Địa chỉ SMTP server Mailpit |
-| `MAILPIT_SMTP_PORT` | Không | `1025` | Cổng SMTP server Mailpit |
+| `MAIL_HOST` | Không | `localhost` (hoặc `mailpit` trong Docker) | Địa chỉ SMTP server gửi email |
+| `MAIL_PORT` | Không | `1025` | Cổng SMTP server gửi email |
 | `JWT_PUBLIC_KEY` | Có | `MCowBQYDK2VwAyEAVmTvQ8njvYoQ1WBKOvbcsrqi9Nvaery5qD2LHTyII+0=` | Ed25519 Public Key (Base64) để verify token |
 | `JWT_PRIVATE_KEY` | Chỉ Identity | `MC4CAQAwBQYDK2VwBCIEICyou5y8vnEP0V3Kl61JGlfmho3Hhd6pCWNsqF318zTP` | Ed25519 Private Key (Base64) để ký token |
 | `APP_QUEUE_ADMIT_RATE` | Không | `100` | Số lượng người dùng được duyệt qua phòng chờ mỗi giây |
+
+## Sinh cặp khoá Ed25519 cho JWT (JWT_PUBLIC_KEY / JWT_PRIVATE_KEY)
+Hệ thống sử dụng chữ ký bất đối xứng EdDSA (Ed25519) định dạng PKCS#8 (Private Key) và X.509 (Public Key) được mã hóa Base64 một dòng. Bạn có thể tự sinh cặp khoá mới bằng các lệnh sau:
+
+### Cách 1: Sử dụng Java / JShell (Khuyên dùng — Chạy trực tiếp trên mọi máy có JDK 21)
+**Trên Windows (PowerShell):**
+```powershell
+"var kp = java.security.KeyPairGenerator.getInstance(`"Ed25519`").generateKeyPair(); System.out.println(`"JWT_PRIVATE_KEY=`" + java.util.Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded())); System.out.println(`"JWT_PUBLIC_KEY=`" + java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()));`n/exit" | jshell -s -
+```
+
+**Trên Linux / macOS (Bash):**
+```bash
+echo 'var kp = java.security.KeyPairGenerator.getInstance("Ed25519").generateKeyPair(); System.out.println("JWT_PRIVATE_KEY=" + java.util.Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded())); System.out.println("JWT_PUBLIC_KEY=" + java.util.Base64.getEncoder().encodeToString(kp.getPublic().getEncoded()));' | jshell -s -
+```
+
+### Cách 2: Sử dụng OpenSSL
+**Trên Linux / WSL / Git Bash:**
+```bash
+# 1. Sinh private key (PKCS#8 Base64)
+openssl genpkey -algorithm Ed25519 -out ed25519.pem
+grep -v -- "-----" ed25519.pem | tr -d '\n'
+echo ""
+
+# 2. Trích xuất public key (X.509 Base64)
+openssl pkey -in ed25519.pem -pubout -out ed25519.pub
+grep -v -- "-----" ed25519.pub | tr -d '\n'
+echo ""
+```
+Dán giá trị sinh ra vào `.env`:
+```env
+JWT_PUBLIC_KEY=<chuỗi_public_key>
+JWT_PRIVATE_KEY=<chuỗi_private_key>
+```
 
 ## Configuration
 - Cấu hình trung tâm được quản lý bởi [`AppProperties.java`](backend/src/main/java/vn/tetticket/shared/config/AppProperties.java) (`@ConfigurationProperties(prefix = "app")`).
@@ -95,10 +128,9 @@ curl http://localhost:8080/health/ready
 |---|---|---|---|
 | `GET` | `/health` | Public | Liveness probe kiểm tra tiến trình ứng dụng |
 | `GET` | `/health/ready` | Public | Readiness probe kiểm tra kết nối song song tới PG, Redis, Kafka (<1.5s) |
-| `POST` | `/api/v1/auth/token` | Public | Tạo JWT access token test (hỗ trợ role `CUSTOMER`, `STAFF`, `ADMIN`) |
-| `GET` | `/api/v1/profile` | Authenticated | Lấy thông tin tài khoản hiện tại |
-| `GET` | `/api/v1/admin/dashboard` | `ADMIN` | Endpoint yêu cầu quyền Quản trị viên (403 nếu quyền khác) |
-| `GET` | `/api/v1/staff/check-in` | `STAFF`, `ADMIN` | Endpoint yêu cầu quyền Nhân viên kiểm soát vé |
+| `GET` | `/api/v1/profile` | Authenticated | Test slice: Lấy thông tin tài khoản hiện tại |
+| `GET` | `/api/v1/admin/dashboard` | `ADMIN` | Test slice: Endpoint yêu cầu quyền Quản trị viên (403 nếu quyền khác) |
+| `GET` | `/api/v1/staff/check-in` | `STAFF`, `ADMIN` | Test slice: Endpoint yêu cầu quyền Nhân viên kiểm soát vé |
 
 ## Authentication & authorization
 - Thuật toán khóa bất đối xứng EdDSA (`Ed25519`): Khóa private chỉ lưu trữ tại module `identity`, các module khác xác thực stateless hoàn toàn qua khóa public.

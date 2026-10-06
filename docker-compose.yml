@@ -84,8 +84,14 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       SPRING_PROFILES_ACTIVE: api
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MAILPIT_SMTP_HOST: mailpit
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,7 +106,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 25s
 
 volumes:
   postgres_data:

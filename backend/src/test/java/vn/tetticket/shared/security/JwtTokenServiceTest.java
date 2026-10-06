@@ -11,6 +11,8 @@ import java.util.Base64;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class JwtTokenServiceTest {
 
@@ -29,6 +31,32 @@ public class JwtTokenServiceTest {
         assertEquals("usr-100", principal.userId());
         assertEquals("test@tetticket.vn", principal.email());
         assertEquals("CUSTOMER", principal.role());
+    }
+
+    @Test
+    void constructor_withPlaceholderOrInvalidKeys_shouldThrowIllegalStateExceptionNamingVariable() {
+        // Placeholder public key
+        IllegalStateException exPubPlaceholder = assertThrows(IllegalStateException.class, () ->
+                new JwtTokenService("<base64-ed25519-public-key>", null));
+        assertTrue(exPubPlaceholder.getMessage().contains("JWT_PUBLIC_KEY"));
+
+        // Invalid format public key
+        IllegalStateException exPubInvalid = assertThrows(IllegalStateException.class, () ->
+                new JwtTokenService("invalid-key-data", null));
+        assertTrue(exPubInvalid.getMessage().contains("JWT_PUBLIC_KEY"));
+
+        // Placeholder private key with valid public key
+        KeyPair kp = JwtTokenService.generateEd25519KeyPair();
+        String validPub = Base64.getEncoder().encodeToString(kp.getPublic().getEncoded());
+
+        IllegalStateException exPrivPlaceholder = assertThrows(IllegalStateException.class, () ->
+                new JwtTokenService(validPub, "<base64-ed25519-private-key>"));
+        assertTrue(exPrivPlaceholder.getMessage().contains("JWT_PRIVATE_KEY"));
+
+        // Invalid format private key
+        IllegalStateException exPrivInvalid = assertThrows(IllegalStateException.class, () ->
+                new JwtTokenService(validPub, "invalid-private-key-data"));
+        assertTrue(exPrivInvalid.getMessage().contains("JWT_PRIVATE_KEY"));
     }
 
     @Test

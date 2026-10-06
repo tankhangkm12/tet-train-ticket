@@ -67,8 +67,8 @@ Kiến trúc Modular Monolith tuân thủ quy tắc DDD / Hexagonal Architecture
 | `KAFKA_BOOTSTRAP_SERVERS` | Có | `localhost:9092` (hoặc `kafka:9092`) | Danh sách địa chỉ broker Apache Kafka |
 | `MAIL_HOST` | Không | `localhost` (hoặc `mailpit` trong Docker) | Địa chỉ SMTP server gửi email |
 | `MAIL_PORT` | Không | `1025` | Cổng SMTP server gửi email |
-| `JWT_PUBLIC_KEY` | Có | `MCowBQYDK2VwAyEAVmTvQ8njvYoQ1WBKOvbcsrqi9Nvaery5qD2LHTyII+0=` | Ed25519 Public Key (Base64) để verify token |
-| `JWT_PRIVATE_KEY` | Chỉ Identity | `MC4CAQAwBQYDK2VwBCIEICyou5y8vnEP0V3Kl61JGlfmho3Hhd6pCWNsqF318zTP` | Ed25519 Private Key (Base64) để ký token |
+| `JWT_PUBLIC_KEY` | Có | `<base64-ed25519-public-key>` | Ed25519 Public Key (Base64) để verify token (sinh bằng lệnh bên dưới) |
+| `JWT_PRIVATE_KEY` | Chỉ Identity | `<base64-ed25519-private-key>` | Ed25519 Private Key (Base64) để ký token (sinh bằng lệnh bên dưới) |
 | `APP_QUEUE_ADMIT_RATE` | Không | `100` | Số lượng người dùng được duyệt qua phòng chờ mỗi giây |
 
 ## Sinh cặp khoá Ed25519 cho JWT (JWT_PUBLIC_KEY / JWT_PRIVATE_KEY)

@@ -47,13 +47,15 @@ public class JwtTokenService {
         if (keyStr == null || keyStr.isBlank()) {
             return null;
         }
+        if (keyStr.startsWith("<") || keyStr.contains("placeholder")) {
+            throw new IllegalStateException("JWT_PUBLIC_KEY (app.jwt-public-key) is invalid: placeholder detected. Generate keys using the command in README.");
+        }
         try {
             byte[] keyBytes = Base64.getDecoder().decode(keyStr.trim());
             KeyFactory kf = KeyFactory.getInstance("Ed25519");
             return kf.generatePublic(new X509EncodedKeySpec(keyBytes));
         } catch (Exception e) {
-            log.error("Failed to parse Ed25519 public key: {}", e.getMessage());
-            return null;
+            throw new IllegalStateException("JWT_PUBLIC_KEY (app.jwt-public-key) cannot be decoded as a valid Ed25519 public key: " + e.getMessage(), e);
         }
     }
 
@@ -61,13 +63,15 @@ public class JwtTokenService {
         if (keyStr == null || keyStr.isBlank()) {
             return null;
         }
+        if (keyStr.startsWith("<") || keyStr.contains("placeholder")) {
+            throw new IllegalStateException("JWT_PRIVATE_KEY (app.jwt-private-key) is invalid: placeholder detected. Generate keys using the command in README.");
+        }
         try {
             byte[] keyBytes = Base64.getDecoder().decode(keyStr.trim());
             KeyFactory kf = KeyFactory.getInstance("Ed25519");
             return kf.generatePrivate(new PKCS8EncodedKeySpec(keyBytes));
         } catch (Exception e) {
-            log.warn("Failed to parse Ed25519 private key (normal on non-identity nodes): {}", e.getMessage());
-            return null;
+            throw new IllegalStateException("JWT_PRIVATE_KEY (app.jwt-private-key) cannot be decoded as a valid Ed25519 private key: " + e.getMessage(), e);
         }
     }
 

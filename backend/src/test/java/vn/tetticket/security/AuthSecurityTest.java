@@ -7,7 +7,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import vn.tetticket.shared.config.SecurityConfig;
 import vn.tetticket.shared.health.HealthController;
@@ -28,12 +29,16 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest({TestSecurityController.class, HealthController.class})
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class, JwtTokenService.class, RequestIdFilter.class})
-@TestPropertySource(properties = {
-    "spring.kafka.bootstrap-servers=",
-    "app.jwt-public-key=MCowBQYDK2VwAyEAVmTvQ8njvYoQ1WBKOvbcsrqi9Nvaery5qD2LHTyII+0=",
-    "app.jwt-private-key=MC4CAQAwBQYDK2VwBCIEICyou5y8vnEP0V3Kl61JGlfmho3Hhd6pCWNsqF318zTP"
-})
 public class AuthSecurityTest {
+
+    private static final KeyPair TEST_KEY_PAIR = JwtTokenService.generateEd25519KeyPair();
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("spring.kafka.bootstrap-servers", () -> "");
+        registry.add("app.jwt-public-key", () -> Base64.getEncoder().encodeToString(TEST_KEY_PAIR.getPublic().getEncoded()));
+        registry.add("app.jwt-private-key", () -> Base64.getEncoder().encodeToString(TEST_KEY_PAIR.getPrivate().getEncoded()));
+    }
 
     @Autowired
     private MockMvc mockMvc;

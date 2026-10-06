@@ -1,0 +1,13 @@
+server:
+  port: 8080
+
+app:
+  jwt-public-key: MCowBQYDK2VwAyEAGb9ECz8d8q12Yf4K5P3m7N9w0qR8tU2vX5yZ1aBcDeE=
+  queue-admit-rate: 100
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.health.DataSourceHealthContributorAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration

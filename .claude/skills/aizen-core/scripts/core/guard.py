@@ -176,6 +176,14 @@ def is_code(path: str) -> bool:
     return not path.startswith(".aizen/") or path.startswith(".aizen/worktrees/")
 
 
+DESIGN_DOCS = re.compile(r"^docs/.+\.(md|ya?ml|json|sql|txt|puml|mmd|html)$", re.I)
+
+
+def is_design_doc(path: str) -> bool:
+    """Plan and design documents (`docs/…`): rules.md lets the planner write them before approval."""
+    return bool(DESIGN_DOCS.match(path))
+
+
 WT = re.compile(r"^\.aizen/worktrees/([^/]+)/(.+)$")
 
 
@@ -1080,7 +1088,8 @@ def deny_reason(ws: Path, ev: dict, files: list[str]) -> str | None:
         if run["status"] in ("planning", "waiting") and not run.get("decision"):
             if run["skill"] == "aizen-build":
                 modules, _, ui = plan(ws, rid)
-                early = [f for f in code if not any(WT.match(f) and WT.match(f).group(1) == f"{rid}-{u}" for u in ui)]
+                early = [f for f in code if not is_design_doc(f)
+                         and not any(WT.match(f) and WT.match(f).group(1) == f"{rid}-{u}" for u in ui)]
                 others = any(r["skill"] == "aizen-build" and r.get("decision") for r in runs.values())
                 if early and not others:
                     return (f"run {rid}: the plan is not approved — no code before `state.py approve` (abandoned? "
@@ -1127,15 +1136,18 @@ def hook(event: str, agent: str, payload: dict) -> tuple[dict | None, str]:
         if not (ev["writes"] or ev["cmd"]):
             return None, "skip"
         starting = re.search(r"(guard\.py[\"']?\s+start|state\.py[\"']?\s+init)\b", ev["cmd"])
+        driving = re.search(r"state\.py[\"']?\s+(brief|answer|approve|round)\b", ev["cmd"])
         for rid, run in live(ws).items():
             append(ws, rid, {"ts": now(), "agent": agent, "writer": ev["writer"], "tool": ev["tool"],
                              "files": files if ev["writes"] else [], "cmd": ev["cmd"][:400], "out": ev["out"],
                              "failed": ev["failed"], "error": ev["error"]})
             g = guard_state(ws, rid)
-            if starting and not g.get("coordinator"):
+            if not g.get("coordinator") and ev["writer"]:
                 created = run.get("created")
                 fresh = not created or (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(created)).total_seconds() < 300
-                if fresh:
+                # a run started with a shell variable (`uv run $S init`) never matches `starting`;
+                # whoever drives `state.py` for the run afterwards is its coordinator (resume).
+                if (starting and fresh) or (driving and rid in ev["cmd"]):
                     g["coordinator"] = ev["writer"]
                     save_guard(ws, rid, g)
         if OWN_SCRIPTS.search(ev["cmd"]):

@@ -69,6 +69,10 @@ def build_run() -> None:
         # pre: no code before approval; guard-owned files never; the owner approves backlog items
         out, _ = G.hook("pre", "claude", claude(ws, "Edit", {"file_path": str(ws / "src/api/a.py")}))
         assert out["hookSpecificOutput"]["permissionDecision"] == "deny", out
+        # design docs are not code: the planner drafts them before approval (rules.md: plan/design docs anytime)
+        assert G.hook("pre", "claude", claude(ws, "Write", {"file_path": str(ws / "docs/srs.md")}))[0] is None
+        assert G.hook("pre", "claude", claude(ws, "Write", {"file_path": str(ws / "docs/api/openapi.yaml")}))[0] is None
+        assert G.hook("pre", "claude", claude(ws, "Write", {"file_path": str(ws / "docs/build.gradle")}))[0]
         assert G.hook("pre", "claude", claude(ws, "Write", {"file_path": str(rd / "plan.md")}))[0] is None
         assert G.hook("pre", "claude", claude(ws, "Edit", {"file_path": str(rd / "run.json")}))[0]
         assert G.hook("pre", "claude", claude(ws, "Write", {"file_path": str(ws / ".aizen/PROJECT.md")}))[0]
@@ -82,6 +86,11 @@ def build_run() -> None:
         # post: ledger + coordinator from `state.py init`
         G.hook("post", "claude", claude(ws, "Bash", {"command": f'python "/x/state.py" init --task {T} --goal g'}))
         assert G.guard_state(ws, T)["coordinator"] == "S1" and len(G.ledger(ws, T)) == 1
+        # resume: no coordinator was recorded (the start command used a shell variable) →
+        # the next `state.py` driving command for the run records its driver as coordinator
+        G.save_guard(ws, T, {})
+        G.hook("post", "claude", claude(ws, "Bash", {"command": f'python "/x/state.py" brief --task {T} --role reviewer'}))
+        assert G.guard_state(ws, T)["coordinator"] == "S1"
         assert stop(ws)[0] is None  # planning: asking the owner is the job
         # approved → write sets enforced in worktrees
         run = G.read_json(rd / "run.json", {})

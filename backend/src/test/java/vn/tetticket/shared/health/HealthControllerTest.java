@@ -26,8 +26,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(HealthController.class)
-@Import(SecurityConfig.class)
-@TestPropertySource(properties = "spring.kafka.bootstrap-servers=")
+@Import({SecurityConfig.class, vn.tetticket.shared.security.JwtAuthenticationFilter.class, vn.tetticket.shared.security.JwtTokenService.class})
+@TestPropertySource(properties = {
+    "spring.kafka.bootstrap-servers=",
+    "app.jwt-public-key=MCowBQYDK2VwAyEAVmTvQ8njvYoQ1WBKOvbcsrqi9Nvaery5qD2LHTyII+0="
+})
 public class HealthControllerTest {
 
     @Autowired

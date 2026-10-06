@@ -1,0 +1,14 @@
+.git
+.gitignore
+.aizen
+.claude
+.agents
+.cursor
+.windsurf
+.gemini
+.codex
+graphify-out
+.env
+backend/target
+target
+*.log

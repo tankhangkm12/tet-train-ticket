@@ -1,0 +1,884 @@
+openapi: 3.1.0
+info:
+  title: Tet Train Ticket API
+  version: 0.3.0-draft
+  description: |
+    DRAFT v3 (TET-0, 2026-10-06; v3 = review round 1 R-1, R-3, R-5, R-6, R-9; v2 = owner decisions applied). Errors are RFC 9457 problem+json with a stable `code` from the catalog
+    (`x-error-catalog`), one HTTP status per code. Auth: Bearer JWT (access 15 min). Ownership: every
+    passenger resource is filtered by `account_id = caller`; another account's id returns 404 (THR-06).
+    While a sale wave has `queue_enabled`, endpoints marked `x-admission: required` need `X-Admission-Token`;
+    creating a payment and reading orders/tickets never need it (F-2).
+    Rate limits (F-4, waiting-room.md §3): a global per-endpoint limit C_x (search 1000, seatmap 600, hold 300 rps,
+    [inferred] targets to be measured), one shared global limit C_other = 600 rps [inferred] for every other passenger
+    route that needs no admission token (orders, payments, tickets - R-5), and a per-account limit (search/seatmap
+    2 req/s, other endpoints 10 req/s); exceeding any returns 429 RATE_LIMITED with retryAfterSeconds.
+servers:
+  - url: /api/v1
+security:
+  - bearer: []
+
+x-error-catalog:
+  VALIDATION_FAILED: 400
+  UNAUTHENTICATED: 401
+  FORBIDDEN: 403
+  ADMISSION_REQUIRED: 403
+  EMAIL_NOT_VERIFIED: 403
+  NOT_FOUND: 404
+  SEAT_UNAVAILABLE: 409
+  ORDER_NOT_PAYABLE: 409
+  ORDER_NOT_CANCELLABLE: 409
+  WAVE_NOT_OPEN: 409
+  REFUND_NOT_ALLOWED: 409
+  EMAIL_TAKEN: 409
+  QUOTA_ACCOUNT_EXCEEDED: 422
+  QUOTA_CCCD_EXCEEDED: 422
+  IDEMPOTENCY_KEY_REUSED: 422
+  RATE_LIMITED: 429
+  QUEUE_UNAVAILABLE: 503
+
+tags:
+  - name: auth
+  - name: queue
+  - name: catalog
+  - name: orders
+  - name: payments
+  - name: tickets
+  - name: admin
+  - name: staff
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201': { description: Account created, verification email sent }
+        '400': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/login:
+    post:
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Access token in body, refresh token in HttpOnly Secure SameSite=Strict cookie
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      security: []
+      description: Rotates the refresh cookie; reuse of an old refresh token revokes the family.
+      responses:
+        '200':
+          description: New access token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/Problem' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      responses:
+        '204': { description: Refresh token revoked }
+  /auth/verify-email:
+    post:
+      tags: [auth]
+      security: []
+      summary: Confirm the email address from the link sent on register; sets account.email_verified (R-6)
+      description: The token is signed by identity (sub = accountId, purpose verify-email, exp 24 h); no table needed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 1024 }
+      responses:
+        '204': { description: Verified (also when already verified) }
+        '400': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+
+  /queue/{waveId}/join:
+    post:
+      tags: [queue]
+      summary: Join the waiting room (one slot per account, BR-10)
+      description: Needs a verified email, else 403 EMAIL_NOT_VERIFIED (R-6). An account that already has a number gets the same number back (R-7).
+      parameters:
+        - $ref: '#/components/parameters/WaveId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [captchaToken]
+              properties:
+                captchaToken: { type: string, maxLength: 2048, description: Cloudflare Turnstile token (Q-W3) }
+      responses:
+        '200':
+          description: Current queue status (same number when joining again)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueStatus' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+  /queue/{waveId}/status:
+    get:
+      tags: [queue]
+      summary: Position, ETA and, once admitted, the admission token (AC-3)
+      parameters:
+        - $ref: '#/components/parameters/WaveId'
+      responses:
+        '200':
+          description: Status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QueueStatus' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
+  /stations:
+    get:
+      tags: [catalog]
+      security: []
+      responses:
+        '200':
+          description: All stations (cacheable, max-age 300)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Station' }
+  /trips/search:
+    get:
+      tags: [catalog]
+      summary: Trips for a segment and date with free seats per class (FR-04, p95 < 300 ms)
+      x-admission: required
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: to, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: date, in: query, required: true, schema: { type: string, format: date } }
+        - $ref: '#/components/parameters/AdmissionToken'
+      responses:
+        '200':
+          description: At most 50 trips; availability may be up to 1 s stale
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 50
+                items: { $ref: '#/components/schemas/TripSummary' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+  /trips/{tripId}/seatmap:
+    get:
+      tags: [catalog]
+      summary: Seat map for one segment (FR-05)
+      x-admission: required
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+        - { name: from, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: to, in: query, required: true, schema: { type: integer, format: int64 } }
+        - $ref: '#/components/parameters/AdmissionToken'
+      responses:
+        '200':
+          description: Coaches and seats
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatMap' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+
+  /orders:
+    post:
+      tags: [orders]
+      summary: Hold 1..4 seats for 15 minutes, all or nothing (AC-1, AC-2, AC-4; p95 < 500 ms)
+      description: Pre-checks before the transaction (F-1) - unknown trip -> 404; trip not SCHEDULED, wave not PUBLISHED or now outside [opensAt, closesAt) -> 409 WAVE_NOT_OPEN.
+      x-admission: required
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AdmissionToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrderRequest' }
+      responses:
+        '201':
+          description: Order PENDING_PAYMENT with expiresAt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [orders]
+      summary: Caller's orders, newest first
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Order' }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+  /orders/{orderId}:
+    get:
+      tags: [orders]
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Order (owner only)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [orders]
+      summary: Cancel a PENDING_PAYMENT hold, seats and quota released at once; a payment arriving later is refunded 100% (F-7)
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '204': { description: Cancelled (also when already cancelled) }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /orders/{orderId}/payments:
+    post:
+      tags: [payments]
+      summary: Create (or return the live) payment attempt; needs >= 2 min left on the hold (BR-03)
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '201':
+          description: Redirect the browser to redirectUrl
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentAttempt' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /payments/vnpay/ipn:
+    get:
+      tags: [payments]
+      summary: Gateway IPN (server to server). Signature HMAC-SHA512, dedup by provider txn (payment.md §3)
+      security: []
+      description: Query parameters are the gateway's (vnp_*), passed through as-is; names [unverified] until the sandbox docs are checked.
+      parameters:
+        - name: params
+          in: query
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: object
+            additionalProperties: { type: string }
+      responses:
+        '200':
+          description: Always 200; result in RspCode (00 ok, 01 not found, 02 already confirmed, 04 bad amount, 97 bad signature, 99 error)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [RspCode, Message]
+                properties:
+                  RspCode: { type: string, enum: ['00', '01', '02', '04', '97', '99'] }
+                  Message: { type: string }
+
+  /tickets:
+    get:
+      tags: [tickets]
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Caller's tickets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Ticket' }
+                  nextCursor: { type: [string, 'null'] }
+        '401': { $ref: '#/components/responses/Problem' }
+  /tickets/{ticketId}:
+    get:
+      tags: [tickets]
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+      responses:
+        '200':
+          description: Ticket with QR (owner only)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ticket' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /tickets/{ticketId}/refund:
+    post:
+      tags: [tickets]
+      summary: Passenger refund under BR-07 (fee 10%, >= 24 h before departure)
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '202':
+          description: Refund REQUESTED, ticket REFUNDED, seat-segment back on sale
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /admin/stations:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Station' }
+      responses:
+        '201': { description: Created }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/routes:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RouteInput' }
+      responses:
+        '201': { description: Created with ordered stations and segment fares }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/trains:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrainInput' }
+      responses:
+        '201': { description: Created with coaches and seats }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/trips:generate:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routeId, trainId, firstDate, lastDate, departureTime]
+              properties:
+                routeId: { type: integer, format: int64 }
+                trainId: { type: integer, format: int64 }
+                firstDate: { type: string, format: date }
+                lastDate: { type: string, format: date }
+                departureTime: { type: string, pattern: '^\d{2}:\d{2}$' }
+      responses:
+        '201': { description: Trips created (existing train+date skipped) }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/trips/{tripId}:cancel:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      summary: Cancel a trip (F-1); the trip-cancel job expires its PENDING_PAYMENT orders and refunds every VALID ticket 100% (TRIP_CANCELLED), repeating each minute while the trip still has an ACTIVE order_item, at least 16 min after cancelledAt (R-1)
+      parameters:
+        - $ref: '#/components/parameters/TripId'
+      responses:
+        '202': { description: Cancellation and refunds queued }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /admin/sale-waves:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaleWave' }
+      responses:
+        '201': { description: DRAFT wave }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/sale-waves/{waveId}:
+    patch:
+      tags: [admin]
+      x-roles: [ADMIN]
+      summary: Change queue parameters (admitRatePerS, activeCap, queueEnabled) live (FR-21)
+      parameters:
+        - $ref: '#/components/parameters/WaveId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                admitRatePerS: { type: integer, minimum: 0 }
+                activeCap: { type: integer, minimum: 0 }
+                queueEnabled: { type: boolean }
+                closesAt: { type: string, format: date-time }
+      responses:
+        '200': { description: Updated }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /admin/sale-waves/{waveId}:publish:
+    post:
+      tags: [admin]
+      x-roles: [ADMIN]
+      summary: In one tx, assign trips departing in [tripDateFrom, tripDateTo] to the wave, then create seat_inventory for them (F-10, data-model.md §3)
+      parameters:
+        - $ref: '#/components/parameters/WaveId'
+      responses:
+        '200': { description: PUBLISHED }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /admin/tickets/{ticketId}/refund:
+    post:
+      tags: [admin]
+      x-roles: [STAFF, ADMIN]
+      summary: Staff refund 100% for a cancelled trip only; trip not CANCELLED -> 409 REFUND_NOT_ALLOWED (R-9, payment.md §7)
+      parameters:
+        - $ref: '#/components/parameters/TicketId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason: { type: string, enum: [TRIP_CANCELLED] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '202':
+          description: Refund REQUESTED (audit_log written)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Refund' }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /admin/reconciliation-issues:
+    get:
+      tags: [admin]
+      x-roles: [STAFF, ADMIN]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [OPEN, RESOLVED] } }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': { description: Page of issues }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/reconciliation-reports:
+    post:
+      tags: [admin]
+      x-roles: [STAFF, ADMIN]
+      summary: Upload the gateway's daily transaction CSV; R2 compares it with SUCCEEDED attempts of that day (Q-P3, payment.md §5)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [businessDate, file]
+              properties:
+                businessDate: { type: string, format: date }
+                file: { type: string, contentMediaType: text/csv, description: max 20 MB }
+      responses:
+        '200':
+          description: Compared; only issues not already present (kind + txn_ref) are created (audit_log written)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [matched, issuesCreated]
+                properties:
+                  matched: { type: integer }
+                  issuesCreated: { type: integer }
+        '400': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+  /admin/reconciliation-issues/{issueId}:resolve:
+    post:
+      tags: [admin]
+      x-roles: [STAFF, ADMIN]
+      summary: Resolve a reconciliation issue (R-3, payment.md §5); no action inserts a ticket or changes a seat mask directly
+      description: |
+        ISSUE_TICKETS (MISSING_LOCAL only) - feeds the gateway transaction into the IPN handler from the dedup step
+        (source QUERY), so the normal / late-payment rules apply: PAID and tickets via outbox, or seat re-acquired, or 100% refund.
+        Handler result 01/02/04 -> 409, issue stays OPEN.
+        REFUND (MISSING_LOCAL with a payment attempt) - attempt SUCCEEDED + 100% refund of that attempt (LATE_PAYMENT_UNFULFILLED).
+        NO_ACTION - close with a note.
+      parameters:
+        - { name: issueId, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [ISSUE_TICKETS, REFUND, NO_ACTION] }
+                note: { type: string, maxLength: 500 }
+      responses:
+        '200': { description: RESOLVED (audit_log written) }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /staff/tickets:verify:
+    post:
+      tags: [staff]
+      x-roles: [STAFF, ADMIN]
+      summary: Verify a scanned QR (signature + status); optional markUsed. The only boarding check - no offline verification in v1 (R-4)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [qr]
+              properties:
+                qr: { type: string, maxLength: 2048 }
+                markUsed: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid: { type: boolean }
+                  reason: { type: string, enum: [OK, BAD_SIGNATURE, REFUNDED, USED, NOT_FOUND] }
+                  ticket: { $ref: '#/components/schemas/Ticket' }
+        '403': { $ref: '#/components/responses/Problem' }
+
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    WaveId: { name: waveId, in: path, required: true, schema: { type: integer, format: int64 } }
+    TripId: { name: tripId, in: path, required: true, schema: { type: integer, format: int64 } }
+    OrderId: { name: orderId, in: path, required: true, schema: { type: string, format: uuid } }
+    TicketId: { name: ticketId, in: path, required: true, schema: { type: string, format: uuid } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 64 }
+    AdmissionToken:
+      name: X-Admission-Token
+      in: header
+      required: false
+      description: Required while the trip's wave has queue_enabled; missing/invalid -> 403 ADMISSION_REQUIRED
+      schema: { type: string, maxLength: 1024 }
+    Cursor: { name: cursor, in: query, schema: { type: string, maxLength: 200 } }
+    Limit: { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 50, default: 20 } }
+  responses:
+    Problem:
+      description: RFC 9457 problem; `code` from x-error-catalog
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        code: { type: string }
+        detail: { type: string }
+        seatIds:
+          type: array
+          description: Only for SEAT_UNAVAILABLE
+          items: { type: integer }
+        retryAfterSeconds: { type: integer, description: RATE_LIMITED (F-4) and QUEUE_UNAVAILABLE }
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 10, maxLength: 128 }
+        fullName: { type: string, maxLength: 100 }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, maxLength: 128 }
+    TokenResponse:
+      type: object
+      required: [accessToken, expiresIn]
+      properties:
+        accessToken: { type: string }
+        expiresIn: { type: integer }
+    QueueStatus:
+      type: object
+      required: [state, pollAfterSeconds]
+      properties:
+        state: { type: string, enum: [PRE_QUEUE, WAITING, ADMITTED] }
+        position: { type: [integer, 'null'], description: null in PRE_QUEUE }
+        etaSeconds: { type: [integer, 'null'] }
+        pollAfterSeconds: { type: integer, enum: [5, 15, 30] }
+        admissionToken: { type: [string, 'null'], description: once admitted the same token is returned on every status call until it expires (F-3) }
+        admissionExpiresAt: { type: [string, 'null'], format: date-time }
+    Station:
+      type: object
+      required: [code, name]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        code: { type: string, maxLength: 8 }
+        name: { type: string, maxLength: 100 }
+    RouteInput:
+      type: object
+      required: [code, name, stops]
+      properties:
+        code: { type: string, maxLength: 16 }
+        name: { type: string, maxLength: 100 }
+        stops:
+          type: array
+          minItems: 2
+          maxItems: 64
+          items:
+            type: object
+            required: [stationId, arrOffsetMin, depOffsetMin]
+            properties:
+              stationId: { type: integer, format: int64 }
+              arrOffsetMin: { type: integer, minimum: 0 }
+              depOffsetMin: { type: integer, minimum: 0 }
+              fares:
+                type: object
+                description: fare of the segment from this stop to the next, per seat class (VND)
+                additionalProperties: { type: integer, minimum: 1 }
+    TrainInput:
+      type: object
+      required: [code, coaches]
+      properties:
+        code: { type: string, maxLength: 16 }
+        coaches:
+          type: array
+          items:
+            type: object
+            required: [coachNo, seatClass, seatCount]
+            properties:
+              coachNo: { type: integer, minimum: 1 }
+              seatClass: { $ref: '#/components/schemas/SeatClass' }
+              seatCount: { type: integer, minimum: 1, maximum: 100 }
+    SeatClass:
+      type: string
+      enum: [SOFT_SEAT, HARD_SEAT, BERTH_4, BERTH_6]
+    SaleWave:
+      type: object
+      required: [name, opensAt, closesAt, tripDateFrom, tripDateTo]
+      properties:
+        id: { type: integer, format: int64, readOnly: true }
+        name: { type: string, maxLength: 100 }
+        opensAt: { type: string, format: date-time }
+        closesAt: { type: string, format: date-time }
+        tripDateFrom: { type: string, format: date, description: trips departing in this range join the wave }
+        tripDateTo: { type: string, format: date }
+        maxPerAccount: { type: integer, default: 10 }
+        maxPerCccd: { type: integer, default: 4 }
+        queueEnabled: { type: boolean, default: true }
+        admitRatePerS: { type: integer, default: 100 }
+        activeCap: { type: integer, default: 50000 }
+        status: { type: string, enum: [DRAFT, PUBLISHED, CLOSED], readOnly: true }
+    TripSummary:
+      type: object
+      required: [tripId, trainCode, departsAt, arrivesAt, availability]
+      properties:
+        tripId: { type: integer, format: int64 }
+        trainCode: { type: string }
+        departsAt: { type: string, format: date-time, description: at the from station }
+        arrivesAt: { type: string, format: date-time, description: at the to station }
+        availability:
+          type: array
+          items:
+            type: object
+            required: [seatClass, free, price]
+            properties:
+              seatClass: { $ref: '#/components/schemas/SeatClass' }
+              free: { type: integer }
+              price: { type: integer, description: VND for this segment }
+    SeatMap:
+      type: object
+      required: [tripId, fromStationId, toStationId, coaches]
+      properties:
+        tripId: { type: integer, format: int64 }
+        fromStationId: { type: integer, format: int64 }
+        toStationId: { type: integer, format: int64 }
+        coaches:
+          type: array
+          items:
+            type: object
+            required: [coachNo, seatClass, price, seats]
+            properties:
+              coachNo: { type: integer }
+              seatClass: { $ref: '#/components/schemas/SeatClass' }
+              price: { type: integer }
+              seats:
+                type: array
+                items:
+                  type: object
+                  required: [seatId, seatNo, available]
+                  properties:
+                    seatId: { type: integer }
+                    seatNo: { type: integer }
+                    available: { type: boolean }
+    CreateOrderRequest:
+      type: object
+      required: [tripId, fromStationId, toStationId, passengers]
+      properties:
+        tripId: { type: integer, format: int64 }
+        fromStationId: { type: integer, format: int64 }
+        toStationId: { type: integer, format: int64 }
+        passengers:
+          type: array
+          minItems: 1
+          maxItems: 4
+          items:
+            type: object
+            required: [seatId, fullName, cccd]
+            properties:
+              seatId: { type: integer }
+              fullName: { type: string, maxLength: 100 }
+              cccd: { type: string, pattern: '^\d{12}$', writeOnly: true }
+    Order:
+      type: object
+      required: [id, status, tripId, totalAmount, expiresAt, items]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING_PAYMENT, PAID, EXPIRED, CANCELLED] }
+        tripId: { type: integer, format: int64 }
+        fromStationId: { type: integer, format: int64 }
+        toStationId: { type: integer, format: int64 }
+        totalAmount: { type: integer, description: VND }
+        expiresAt: { type: string, format: date-time }
+        paidAt: { type: [string, 'null'], format: date-time }
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, seatId, coachNo, seatNo, fullName, cccdLast4, price, status]
+            properties:
+              id: { type: string, format: uuid }
+              seatId: { type: integer }
+              coachNo: { type: integer }
+              seatNo: { type: integer }
+              fullName: { type: string }
+              cccdLast4: { type: string }
+              price: { type: integer }
+              status: { type: string, enum: [ACTIVE, RELEASED, REFUNDED] }
+    PaymentAttempt:
+      type: object
+      required: [id, status, amount, redirectUrl, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, SUCCEEDED, FAILED, EXPIRED, REFUNDED, PARTIALLY_REFUNDED] }
+        amount: { type: integer }
+        redirectUrl: { type: string, format: uri }
+        expiresAt: { type: string, format: date-time }
+    Ticket:
+      type: object
+      required: [id, code, status, tripId, coachNo, seatNo, fullName, cccdLast4, departsAt, qr]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        status: { type: string, enum: [VALID, REFUNDED, USED] }
+        tripId: { type: integer, format: int64 }
+        trainCode: { type: string }
+        fromStationId: { type: integer, format: int64 }
+        toStationId: { type: integer, format: int64 }
+        coachNo: { type: integer }
+        seatNo: { type: integer }
+        fullName: { type: string }
+        cccdLast4: { type: string }
+        departsAt: { type: string, format: date-time }
+        qr: { type: string, description: base64url(payload).base64url(ed25519 signature) }
+    Refund:
+      type: object
+      required: [id, status, amount, reason]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [REQUESTED, SUCCEEDED, FAILED] }
+        amount: { type: integer }
+        reason: { type: string, enum: [PASSENGER_REQUEST, TRIP_CANCELLED, LATE_PAYMENT_UNFULFILLED, DOUBLE_PAYMENT] }

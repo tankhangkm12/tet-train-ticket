@@ -1,9 +1,7 @@
 package vn.tetticket.shared.health;
 
 import org.apache.kafka.clients.admin.AdminClient;
-import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.http.HttpStatus;
@@ -17,6 +15,9 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 @RestController
@@ -24,15 +25,16 @@ public class HealthController {
 
     private final DataSource dataSource;
     private final RedisConnectionFactory redisConnectionFactory;
-    private final String kafkaBootstrapServers;
+    private final AdminClient kafkaAdminClient;
+    private final ExecutorService healthExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public HealthController(
             @Autowired(required = false) DataSource dataSource,
             @Autowired(required = false) RedisConnectionFactory redisConnectionFactory,
-            @Value("${spring.kafka.bootstrap-servers:localhost:9092}") String kafkaBootstrapServers) {
+            @Autowired(required = false) AdminClient kafkaAdminClient) {
         this.dataSource = dataSource;
         this.redisConnectionFactory = redisConnectionFactory;
-        this.kafkaBootstrapServers = kafkaBootstrapServers;
+        this.kafkaAdminClient = kafkaAdminClient;
     }
 
     @GetMapping("/health")
@@ -42,43 +44,33 @@ public class HealthController {
 
     @GetMapping("/health/ready")
     public ResponseEntity<Map<String, Object>> ready() {
+        // Run all 3 checks in parallel with 1s timeout each
+        CompletableFuture<String> dbFuture = CompletableFuture.supplyAsync(this::checkDatabase, healthExecutor)
+                .completeOnTimeout("DOWN", 1000, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> "DOWN");
+
+        CompletableFuture<String> redisFuture = CompletableFuture.supplyAsync(this::checkRedis, healthExecutor)
+                .completeOnTimeout("DOWN", 1000, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> "DOWN");
+
+        CompletableFuture<String> kafkaFuture = CompletableFuture.supplyAsync(this::checkKafka, healthExecutor)
+                .completeOnTimeout("DOWN", 1000, TimeUnit.MILLISECONDS)
+                .exceptionally(ex -> "DOWN");
+
+        CompletableFuture.allOf(dbFuture, redisFuture, kafkaFuture).join();
+
+        String dbStatus = dbFuture.join();
+        String redisStatus = redisFuture.join();
+        String kafkaStatus = kafkaFuture.join();
+
         Map<String, String> checks = new LinkedHashMap<>();
-        boolean allUp = true;
+        checks.put("database", dbStatus);
+        checks.put("redis", redisStatus);
+        checks.put("kafka", kafkaStatus);
 
-        // Check Database
-        if (dataSource != null) {
-            String dbStatus = checkDatabase();
-            checks.put("database", dbStatus);
-            if (!"UP".equals(dbStatus)) {
-                allUp = false;
-            }
-        } else {
-            checks.put("database", "DISABLED");
-        }
-
-        // Check Redis
-        if (redisConnectionFactory != null) {
-            String redisStatus = checkRedis();
-            checks.put("redis", redisStatus);
-            if (!"UP".equals(redisStatus)) {
-                allUp = false;
-            }
-        } else {
-            checks.put("redis", "DISABLED");
-        }
-
-        // Check Kafka
-        if (kafkaBootstrapServers != null && !kafkaBootstrapServers.isBlank()) {
-            String kafkaStatus = checkKafka();
-            checks.put("kafka", kafkaStatus);
-            if (!"UP".equals(kafkaStatus)) {
-                allUp = false;
-            }
-        } else {
-            checks.put("kafka", "DISABLED");
-        }
-
+        boolean allUp = !checks.containsValue("DOWN");
         HttpStatus status = allUp ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", allUp ? "UP" : "DOWN");
         response.put("checks", checks);
@@ -87,9 +79,12 @@ public class HealthController {
     }
 
     private String checkDatabase() {
+        if (dataSource == null) {
+            return "DISABLED";
+        }
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            stmt.setQueryTimeout(2);
+            stmt.setQueryTimeout(1);
             try (ResultSet rs = stmt.executeQuery("SELECT 1")) {
                 if (rs.next()) {
                     return "UP";
@@ -102,6 +97,9 @@ public class HealthController {
     }
 
     private String checkRedis() {
+        if (redisConnectionFactory == null) {
+            return "DISABLED";
+        }
         try (RedisConnection conn = redisConnectionFactory.getConnection()) {
             String ping = conn.ping();
             return "PONG".equalsIgnoreCase(ping) ? "UP" : "DOWN";
@@ -111,12 +109,11 @@ public class HealthController {
     }
 
     private String checkKafka() {
-        Map<String, Object> conf = new LinkedHashMap<>();
-        conf.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrapServers);
-        conf.put(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, "2000");
-        conf.put(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, "2000");
-        try (AdminClient client = AdminClient.create(conf)) {
-            client.describeCluster().clusterId().get(2, TimeUnit.SECONDS);
+        if (kafkaAdminClient == null) {
+            return "DISABLED";
+        }
+        try {
+            kafkaAdminClient.describeCluster().clusterId().get(1, TimeUnit.SECONDS);
             return "UP";
         } catch (Exception e) {
             return "DOWN";
